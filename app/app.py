@@ -88,12 +88,16 @@ async def download_file(req_id: str):
     )
 
 async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url: str, headers: dict, body: bytes):
-    print(f"Notifying Telegram for request {req_id}")
-    from .bot import send_to_bound_chats
-    preview_headers = str(headers)[:500] + '...' if len(str(headers)) > 500 else str(headers)
-    preview_body = body.decode(errors='ignore')[:500] + '...' if len(body) > 500 else body.decode(errors='ignore')
-    msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}\n🔗 http://YOUR_VPS_IP:{PORT}/file/{req_id}"
-    await send_to_bound_chats(msg)
+    try:
+        print(f"Notifying Telegram for request {req_id}")
+        from .bot import send_to_bound_chats
+        preview_headers = str(headers)[:500] + '...' if len(str(headers)) > 500 else str(headers)
+        preview_body = body.decode(errors='ignore')[:500] + '...' if len(body) > 500 else body.decode(errors='ignore')
+        msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}\n🔗 http://YOUR_VPS_IP:{PORT}/file/{req_id}"
+        await send_to_bound_chats(msg)
+        print(f"Notification sent for {req_id}")
+    except Exception as e:
+        print(f"Error notifying Telegram for {req_id}: {e}")
 
 if __name__ == "__main__":
     import uvicorn
