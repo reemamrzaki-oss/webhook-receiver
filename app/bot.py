@@ -56,6 +56,7 @@ async def send_to_bound_chats(msg: str):
                 disable_web_page_preview=True,
                 parse_mode=None  # Safe for Telegram
             )
+            print(f"Message sent to {chat_id}")
         except Exception as e:
             print(f"Failed to notify chat {chat_id}: {e}")
 
