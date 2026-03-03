@@ -1,6 +1,7 @@
 import aiofiles
 import asyncio
 import json
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -11,6 +12,7 @@ load_dotenv()
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/opt/webhook-data"))
 DATA_FILE = DATA_DIR / "data.json"
+HASHES_FILE = DATA_DIR / "hashes.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -99,3 +101,40 @@ async def get_bound_chats() -> List[int]:
     data = await load_data()
     active_chats = [chat for chat in data["chats"] if chat not in data["paused_chats"]]
     return active_chats
+
+async def load_hashes() -> Dict[str, str]:
+    try:
+        async with aiofiles.open(HASHES_FILE, mode='r') as f:
+            content = await f.read()
+            return json.loads(content)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+async def save_hashes(hashes: Dict[str, str]):
+    async with aiofiles.open(HASHES_FILE, mode='w') as f:
+        await f.write(json.dumps(hashes, indent=2))
+
+async def is_duplicate_request(headers: Dict[str, str], body: bytes) -> bool:
+    # Compute SHA-256 of headers + body
+    hash_input = json.dumps(headers, sort_keys=True) + body.decode('utf-8', errors='replace')
+    hash_value = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
+    
+    hashes = await load_hashes()
+    now = datetime.utcnow()
+    
+    # Check if hash exists and is within last 5 minutes
+    if hash_value in hashes:
+        last_ts = datetime.fromisoformat(hashes[hash_value])
+        if now - last_ts < timedelta(minutes=5):
+            return True
+    
+    # Update hash with current timestamp
+    hashes[hash_value] = now.isoformat()
+    
+    # Clean old hashes (older than 5 minutes)
+    to_remove = [h for h, ts in hashes.items() if now - datetime.fromisoformat(ts) >= timedelta(minutes=5)]
+    for h in to_remove:
+        del hashes[h]
+    
+    await save_hashes(hashes)
+    return False

@@ -1,9 +1,10 @@
 from typing import List
 import os
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
 )
 from dotenv import load_dotenv
@@ -32,10 +33,12 @@ async def init_bot() -> Application:
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("recent", recent))
     application.add_handler(CommandHandler("get", get_webhook))
+    application.add_handler(CommandHandler("bind_other", bind_other))
+    application.add_handler(CallbackQueryHandler(handle_callback))
     
     return application
 
-async def send_to_bound_chats(msg: str):
+async def send_to_bound_chats(msg: str, req_id: str = None):
     global application
     if not application:
         print("No application")
@@ -48,13 +51,18 @@ async def send_to_bound_chats(msg: str):
         print(f"Using default chat: {chats}")
 
     print(f"Sending to chats: {chats}")
+    reply_markup = None
+    if req_id:
+        keyboard = [[InlineKeyboardButton("Download File", callback_data=f"download_{req_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
     for chat_id in chats:
         try:
             await application.bot.send_message(
                 chat_id=chat_id,
                 text=msg,
                 disable_web_page_preview=True,
-                parse_mode=None  # Safe for Telegram
+                parse_mode=None,  # Safe for Telegram
+                reply_markup=reply_markup
             )
             print(f"Message sent to {chat_id}")
         except Exception as e:
@@ -66,6 +74,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Commands:
 /bind - Bind this chat
+/bind_other <chat_id> - Bind another chat
 /unbind - Unbind this chat
 /pause - Pause notifications
 /resume - Resume notifications
@@ -165,3 +174,42 @@ async def get_webhook(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         await update.message.reply_text(f"Failed to send file: {e}")
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data.startswith("download_"):
+        req_id = data.split("_", 1)[1]
+        from .storage import find_request_file
+        file_path = await find_request_file(req_id)
+        if not file_path or not file_path.exists():
+            await query.edit_message_text("❌ Webhook file not found.")
+            return
+        try:
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=file_path,
+                filename=file_path.name,
+                caption=f"🆔 Full webhook: {req_id}"
+            )
+        except Exception as e:
+            await query.edit_message_text(f"Failed to send file: {e}")
+
+async def bind_other(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /bind_other <chat_id>")
+        return
+    try:
+        other_chat_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Invalid chat ID.")
+        return
+    from .storage import load_data, save_data
+    data = await load_data()
+    if other_chat_id not in data["chats"]:
+        data["chats"].append(other_chat_id)
+        await save_data(data)
+        await update.message.reply_text(f"✅ Bound chat {other_chat_id} to webhook notifications!")
+    else:
+        await update.message.reply_text("Already bound.")

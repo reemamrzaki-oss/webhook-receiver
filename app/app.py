@@ -59,12 +59,19 @@ async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
     if len(body) > MAX_BODY_SIZE:
         raise HTTPException(413, "Payload too large")
     
+    # Check for duplicates
+    from .storage import is_duplicate_request
+    if await is_duplicate_request(headers, body):
+        print(f"Duplicate request detected for {req_id}, skipping save.")
+        # Still notify? Maybe not, or log warning
+        return {"request_id": req_id, "status": "duplicate"}
+    
     # Save to file and update stats
     from .storage import save_webhook_request, update_stats_and_recent
     await save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
     await update_stats_and_recent(req_id, ts)
     
-# Notify Telegram chats
+    # Notify Telegram chats
     await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body)
 
     return {"request_id": req_id, "status": "received"}
@@ -92,8 +99,8 @@ async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url:
         from .bot import send_to_bound_chats
         preview_headers = str(headers)[:500] + '...' if len(str(headers)) > 500 else str(headers)
         preview_body = body.decode(errors='ignore')[:500] + '...' if len(body) > 500 else body.decode(errors='ignore')
-        msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}\n🔗 http://YOUR_VPS_IP:{PORT}/file/{req_id}"
-        await send_to_bound_chats(msg)
+        msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}"
+        await send_to_bound_chats(msg, req_id)
         print(f"Notification sent for {req_id}")
     except Exception as e:
         print(f"Error notifying Telegram for {req_id}: {e}")
