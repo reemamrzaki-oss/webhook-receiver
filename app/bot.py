@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+DEFAULT_CHAT_ID = os.getenv("DEFAULT_CHAT_ID")
 
 application: Application = None
 
@@ -41,6 +42,8 @@ async def send_to_bound_chats(msg: str):
     
     from .storage import get_bound_chats
     chats: List[int] = await get_bound_chats()
+    if not chats and DEFAULT_CHAT_ID:
+        chats = [int(DEFAULT_CHAT_ID)]
     
     for chat_id in chats:
         try:
