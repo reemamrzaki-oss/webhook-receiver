@@ -5,12 +5,15 @@ set -e
 echo_green() { echo -e "\033[32m$1\033[0m"; }
 echo_red() { echo -e "\033[31m$1\033[0m"; }
 
+# Install gnupg for package verification
+apt install -y gnupg
+
 # Update system
 apt update && apt upgrade -y
 echo_green "✅ System updated"
 
 # Install dependencies
-apt install -y python3 python3-pip python3-venv ufw curl unzip wget whoami
+apt install -y python3 python3-pip python3-venv ufw curl unzip wget
 
 echo_green "✅ Dependencies installed"
 
