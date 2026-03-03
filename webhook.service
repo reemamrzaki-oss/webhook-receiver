@@ -1,0 +1,16 @@
+[Unit]
+Description=Webhook Receiver Service
+After=network.target
+
+[Service]
+Type=simple
+User=webhook
+Group=webhook
+WorkingDirectory=/opt/webhook
+EnvironmentFile=/opt/webhook/.env
+ExecStart=/opt/webhook/venv/bin/uvicorn app.app:app --host 0.0.0.0 --port 8443 --log-level info
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

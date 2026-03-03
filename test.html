@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Webhook Tester</title>
+</head>
+<body>
+  <h1>🧪 Webhook Test Client</h1>
+  <form id="form">
+    Method: <select id="method"><option>POST</option><option>GET</option><option>PUT</option></select><br><br>
+    Headers: <input type="text" id="headers" placeholder='Content-Type: application/json'><br><br>
+    Body: <textarea id="body" rows=10 cols=50>{"test": "payload"}</textarea><br><br>
+    <button type="submit">Send to /webhook</button>
+  </form>
+  <div id="result"></div>
+  <script>
+    document.getElementById('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const method = document.getElementById('method').value;
+      const body = document.getElementById('body').value;
+      const headersInput = document.getElementById('headers').value;
+      const headers = {};
+      headersInput.split('\n').forEach(h => {
+        const [k,v] = h.split(': ');
+        if (k && v) headers[k.trim()] = v.trim();
+      });
+      if (body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+      
+      try {
+        const res = await fetch('/webhook', {method, headers, body});
+        const data = await res.json();
+        document.getElementById('result').innerHTML = `
+          <h3>Response (${res.status}):</h3>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+          <p><a href="/file/${data.request_id}" target=_blank>Download full</a></p>
+        `;
+      } catch (err) {
+        document.getElementById('result').innerHTML = `<p style=color:red>Error: ${err}</p>`;
+      }
+    };
+  </script>
+</body>
+</html>
+
+<!-- Serve with: python -m http.server 8000 --directory . --bind 0.0.0.0 -- --port 8000, open test.html, proxy /webhook to 8443 or test locally -->

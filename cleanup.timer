@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Webhook Cleanup
+Requires=cleanup.service
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

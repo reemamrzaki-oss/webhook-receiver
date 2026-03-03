@@ -1,0 +1,11 @@
+[Unit]
+Description=Webhook Cleanup
+
+[Service]
+Type=oneshot
+User=webhook
+WorkingDirectory=/opt/webhook
+ExecStart=/opt/webhook/venv/bin/python app/cleanup.py
+
+[Install]
+WantedBy=multi-user.target
