@@ -1,9 +1,10 @@
 from typing import List
 import os
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
 )
 from dotenv import load_dotenv
@@ -34,6 +35,7 @@ async def init_bot() -> Application:
     application.add_handler(CommandHandler("get", get_webhook))
     application.add_handler(CommandHandler("bind_other", bind_other))
     application.add_handler(CommandHandler("generate_token", generate_token_cmd))
+    application.add_handler(CallbackQueryHandler(handle_callback))
     
     return application
 
@@ -66,7 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = """
 🔔 *Webhook Receiver Bot*
 
-Commands:
+Use the buttons below or type commands:
 /bind [site] - Bind this chat
 /bind_other <chat_id> [site] - Bind another chat
 /unbind [site] - Unbind this chat
@@ -78,7 +80,18 @@ Commands:
 /get <id> - Download full webhook
 /generate_token [site] - Generate secure webhook URL
 """.strip()
-    await update.message.reply_text(welcome, parse_mode='Markdown')
+    keyboard = [
+        [InlineKeyboardButton("Bind Chat", callback_data="bind")],
+        [InlineKeyboardButton("Unbind Chat", callback_data="unbind")],
+        [InlineKeyboardButton("Pause", callback_data="pause")],
+        [InlineKeyboardButton("Resume", callback_data="resume")],
+        [InlineKeyboardButton("Status", callback_data="status")],
+        [InlineKeyboardButton("Stats", callback_data="stats")],
+        [InlineKeyboardButton("Recent", callback_data="recent")],
+        [InlineKeyboardButton("Generate Token", callback_data="generate_token")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(welcome, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def bind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -203,3 +216,80 @@ async def generate_token_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     token = await generate_token(chat_id, site)
     url = f"http://158.62.198.119:8443/webhook/{token}"
     await update.message.reply_text(f"🔑 Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    chat_id = query.message.chat_id
+    if data == "bind":
+        site = "default"
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        if chat_id not in site_data["chats"]:
+            site_data["chats"].append(chat_id)
+            await save_data(data_dict)
+            await query.edit_message_text("✅ Bound to webhook notifications!")
+        else:
+            await query.edit_message_text("Already bound.")
+    elif data == "unbind":
+        site = "default"
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"]:
+            site_data["chats"].remove(chat_id)
+        if chat_id in site_data["paused_chats"]:
+            site_data["paused_chats"].remove(chat_id)
+        await save_data(data_dict)
+        await query.edit_message_text("❌ Unbound.")
+    elif data == "pause":
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"] and chat_id not in site_data["paused_chats"]:
+            site_data["paused_chats"].append(chat_id)
+            await save_data(data_dict)
+            await query.edit_message_text("⏸️ Notifications paused.")
+        else:
+            await query.edit_message_text("Not bound or already paused.")
+    elif data == "resume":
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["paused_chats"]:
+            site_data["paused_chats"].remove(chat_id)
+            await save_data(data_dict)
+            await query.edit_message_text("▶️ Notifications resumed.")
+        else:
+            await query.edit_message_text("Not paused.")
+    elif data == "status":
+        from .storage import load_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"]:
+            status_text = "✅ Active" if chat_id not in site_data["paused_chats"] else "⏸️ Paused"
+        else:
+            status_text = "❌ Not bound"
+        await query.edit_message_text(f"Status: {status_text}")
+    elif data == "stats":
+        from .storage import load_data
+        data_dict = await load_data()
+        stats_text = f"📊 Stats:\nTotal: {data_dict['stats']['total']}\nDaily: {data_dict['stats']['daily']}"
+        await query.edit_message_text(stats_text)
+    elif data == "recent":
+        from .storage import load_data
+        data_dict = await load_data()
+        recents = data_dict["recent"][:5]
+        if not recents:
+            await query.edit_message_text("No recent webhooks.")
+            return
+        text = "📋 Recent webhooks:\n" + "\n".join([f"🆔 {r['id']} ⏱️ {r['ts']}" for r in recents])
+        await query.edit_message_text(text)
+    elif data == "generate_token":
+        site = "default"
+        from .storage import generate_token
+        token = await generate_token(chat_id, site)
+        url = f"http://158.62.198.119:8443/webhook/{token}"
+        await query.edit_message_text(f"🔑 Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
