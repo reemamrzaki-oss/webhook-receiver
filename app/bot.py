@@ -38,14 +38,14 @@ async def init_bot() -> Application:
     
     return application
 
-async def send_to_bound_chats(msg: str, req_id: str = None):
+async def send_to_bound_chats(msg: str, req_id: str = None, site: str = "default"):
     global application
     if not application:
         print("No application")
         return
 
     from .storage import get_bound_chats
-    chats: List[int] = await get_bound_chats()
+    chats: List[int] = await get_bound_chats(site)
     if not chats and DEFAULT_CHAT_ID:
         chats = [int(DEFAULT_CHAT_ID)]
         print(f"Using default chat: {chats}")
@@ -73,9 +73,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔔 *Webhook Receiver Bot*
 
 Commands:
-/bind - Bind this chat
-/bind_other <chat_id> - Bind another chat
-/unbind - Unbind this chat
+/bind [site] - Bind this chat (default site)
+/bind_other <chat_id> [site] - Bind another chat
+/unbind [site] - Unbind this chat
 /pause - Pause notifications
 /resume - Resume notifications
 /status - Check status
@@ -87,23 +87,27 @@ Commands:
 
 async def bind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    site = context.args[0] if context.args else "default"
     from .storage import load_data, save_data
     data = await load_data()
-    if chat_id not in data["chats"]:
-        data["chats"].append(chat_id)
+    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+    if chat_id not in site_data["chats"]:
+        site_data["chats"].append(chat_id)
         await save_data(data)
-        await update.message.reply_text("✅ Bound to webhook notifications!")
+        await update.message.reply_text(f"✅ Bound to webhook notifications for site '{site}'!")
     else:
         await update.message.reply_text("Already bound.")
 
 async def unbind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    site = context.args[0] if context.args else "default"
     from .storage import load_data, save_data
     data = await load_data()
-    if chat_id in data["chats"]:
-        data["chats"].remove(chat_id)
-    if chat_id in data["paused_chats"]:
-        data["paused_chats"].remove(chat_id)
+    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+    if chat_id in site_data["chats"]:
+        site_data["chats"].remove(chat_id)
+    if chat_id in site_data["paused_chats"]:
+        site_data["paused_chats"].remove(chat_id)
     await save_data(data)
     await update.message.reply_text("❌ Unbound.")
 
@@ -197,19 +201,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"Failed to send file: {e}")
 
 async def bind_other(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /bind_other <chat_id>")
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /bind_other <chat_id> [site]")
         return
     try:
         other_chat_id = int(context.args[0])
     except ValueError:
         await update.message.reply_text("Invalid chat ID.")
         return
+    site = context.args[1] if len(context.args) > 1 else "default"
     from .storage import load_data, save_data
     data = await load_data()
-    if other_chat_id not in data["chats"]:
-        data["chats"].append(other_chat_id)
+    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+    if other_chat_id not in site_data["chats"]:
+        site_data["chats"].append(other_chat_id)
         await save_data(data)
-        await update.message.reply_text(f"✅ Bound chat {other_chat_id} to webhook notifications!")
+        await update.message.reply_text(f"✅ Bound chat {other_chat_id} to webhook notifications for site '{site}'!")
     else:
         await update.message.reply_text("Already bound.")

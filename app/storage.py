@@ -23,15 +23,13 @@ async def load_data() -> Dict[str, Any]:
             content = await f.read()
             data = json.loads(content)
             # Ensure structure
-            data.setdefault("chats", [])
-            data.setdefault("paused_chats", [])
+            data.setdefault("sites", {"default": {"chats": [], "paused_chats": []}})
             data.setdefault("stats", {"total": 0, "daily": 0, "reset_date": datetime.now().date().isoformat()})
             data.setdefault("recent", [])
             return data
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         return {
-            "chats": [],
-            "paused_chats": [],
+            "sites": {"default": {"chats": [], "paused_chats": []}},
             "stats": {"total": 0, "daily": 0, "reset_date": datetime.now().date().isoformat()},
             "recent": []
         }
@@ -97,9 +95,10 @@ async def find_request_file(req_id: str) -> Optional[Path]:
         return file_path
     return None
 
-async def get_bound_chats() -> List[int]:
+async def get_bound_chats(site: str = "default") -> List[int]:
     data = await load_data()
-    active_chats = [chat for chat in data["chats"] if chat not in data["paused_chats"]]
+    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+    active_chats = [chat for chat in site_data["chats"] if chat not in site_data["paused_chats"]]
     return active_chats
 
 async def load_hashes() -> Dict[str, str]:
