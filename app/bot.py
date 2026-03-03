@@ -71,7 +71,7 @@ async def send_to_bound_chats(msg: str, site: str = "default", req_id: str = Non
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = """
-🔔 *Webhook Receiver Bot*
+Webhook Receiver Bot
 
 Use the buttons below or type commands:
 /bind [site] - Bind this chat
@@ -96,7 +96,7 @@ Use the buttons below or type commands:
         [InlineKeyboardButton("Generate Token", callback_data="generate_token")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(welcome, parse_mode='Markdown', reply_markup=reply_markup)
+    await update.message.reply_text(welcome, parse_mode=None, reply_markup=reply_markup)
 
 async def bind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -220,7 +220,7 @@ async def generate_token_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     from .storage import generate_token
     token = await generate_token(chat_id, site)
     url = f"http://158.62.198.119:8443/webhook/{token}"
-    await update.message.reply_text(f"🔑 Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
+    await update.message.reply_text(f"Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -252,7 +252,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if chat_id not in site_data["chats"]:
             site_data["chats"].append(chat_id)
             await save_data(data_dict)
-            await query.edit_message_text("✅ Bound to webhook notifications!")
+            await query.edit_message_text("Bound to webhook notifications!")
         else:
             await query.edit_message_text("Already bound.")
     elif data == "unbind":
@@ -265,7 +265,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if chat_id in site_data["paused_chats"]:
             site_data["paused_chats"].remove(chat_id)
         await save_data(data_dict)
-        await query.edit_message_text("❌ Unbound.")
+        await query.edit_message_text("Unbound.")
     elif data == "pause":
         from .storage import load_data, save_data
         data_dict = await load_data()
@@ -273,7 +273,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if chat_id in site_data["chats"] and chat_id not in site_data["paused_chats"]:
             site_data["paused_chats"].append(chat_id)
             await save_data(data_dict)
-            await query.edit_message_text("⏸️ Notifications paused.")
+            await query.edit_message_text("Notifications paused.")
         else:
             await query.edit_message_text("Not bound or already paused.")
     elif data == "resume":
@@ -283,7 +283,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if chat_id in site_data["paused_chats"]:
             site_data["paused_chats"].remove(chat_id)
             await save_data(data_dict)
-            await query.edit_message_text("▶️ Notifications resumed.")
+            await query.edit_message_text("Notifications resumed.")
         else:
             await query.edit_message_text("Not paused.")
     elif data == "status":
@@ -291,14 +291,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_dict = await load_data()
         site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
         if chat_id in site_data["chats"]:
-            status_text = "✅ Active" if chat_id not in site_data["paused_chats"] else "⏸️ Paused"
+            status_text = "Active" if chat_id not in site_data["paused_chats"] else "Paused"
         else:
-            status_text = "❌ Not bound"
+            status_text = "Not bound"
         await query.edit_message_text(f"Status: {status_text}")
     elif data == "stats":
         from .storage import load_data
         data_dict = await load_data()
-        stats_text = f"📊 Stats:\nTotal: {data_dict['stats']['total']}\nDaily: {data_dict['stats']['daily']}"
+        stats_text = f"Stats:\nTotal: {data_dict['stats']['total']}\nDaily: {data_dict['stats']['daily']}"
         await query.edit_message_text(stats_text)
     elif data == "recent":
         from .storage import load_data
@@ -307,11 +307,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not recents:
             await query.edit_message_text("No recent webhooks.")
             return
-        text = "📋 Recent webhooks:\n" + "\n".join([f"🆔 {r['id']} ⏱️ {r['ts']}" for r in recents])
+        text = "Recent webhooks:\n" + "\n".join([f"ID {r['id']} Time {r['ts']}" for r in recents])
         await query.edit_message_text(text)
     elif data == "generate_token":
         site = "default"
         from .storage import generate_token
         token = await generate_token(chat_id, site)
         url = f"http://158.62.198.119:8443/webhook/{token}"
-        await query.edit_message_text(f"🔑 Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
+        await query.edit_message_text(f"Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
