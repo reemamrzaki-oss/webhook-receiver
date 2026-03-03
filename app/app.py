@@ -23,11 +23,6 @@ RATE_LIMIT = os.getenv("RATE_LIMIT", "100/minute")
 MAX_BODY_SIZE = int(os.getenv("MAX_BODY_SIZE", 10_485_760))
 
 limiter = Limiter(key_func=get_remote_address)
-app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
-
-app.add_middleware(SlowAPIMiddleware)
-app.state.limiter = limiter
-app.state.data_file = DATA_DIR / "data.json"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +33,12 @@ async def lifespan(app: FastAPI):
     thread.start()
     yield
     # Shutdown
+
+app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
+
+app.add_middleware(SlowAPIMiddleware)
+app.state.limiter = limiter
+app.state.data_file = DATA_DIR / "data.json"
 
 @app.api_route("/webhook", methods=["GET","POST","PUT","DELETE","PATCH","OPTIONS","HEAD"])
 @limiter.limit(RATE_LIMIT)
