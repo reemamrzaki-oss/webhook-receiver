@@ -38,13 +38,16 @@ async def init_bot() -> Application:
 async def send_to_bound_chats(msg: str):
     global application
     if not application:
+        print("No application")
         return
-    
+
     from .storage import get_bound_chats
     chats: List[int] = await get_bound_chats()
     if not chats and DEFAULT_CHAT_ID:
         chats = [int(DEFAULT_CHAT_ID)]
-    
+        print(f"Using default chat: {chats}")
+
+    print(f"Sending to chats: {chats}")
     for chat_id in chats:
         try:
             await application.bot.send_message(
