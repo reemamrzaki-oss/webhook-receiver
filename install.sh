@@ -48,8 +48,7 @@ echo "BOT_TOKEN=$BOT_TOKEN" >> .env
 chown webhook:webhook .env
 
 # Create virtualenv and install deps
-owner=$(id -u webhook):$(id -g webhook)
-su - $owner -c "
+su - webhook -c "
   python3 -m venv venv
   source venv/bin/activate
   pip install --upgrade pip
