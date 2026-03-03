@@ -68,7 +68,8 @@ async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
     
     # Async notify Telegram chats
     background_tasks.add_task(notify_telegram_chats, req_id, client_ip, ts, method, full_url, headers, body)
-    
+    print(f"Added background task for request {req_id}")
+
     return {"request_id": req_id, "status": "received"}
 
 @app.get("/health")
