@@ -72,8 +72,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = """
 🔔 *Webhook Receiver Bot*
 
-Commands:
-/bind [site] - Bind this chat (default site)
+Use the buttons below or type commands:
+/bind [site] - Bind this chat
 /bind_other <chat_id> [site] - Bind another chat
 /unbind [site] - Unbind this chat
 /pause - Pause notifications
@@ -83,7 +83,17 @@ Commands:
 /recent - Last 5 webhooks
 /get <id> - Download full webhook
 """.strip()
-    await update.message.reply_text(welcome, parse_mode='Markdown')
+    keyboard = [
+        [InlineKeyboardButton("Bind Chat", callback_data="bind")],
+        [InlineKeyboardButton("Unbind Chat", callback_data="unbind")],
+        [InlineKeyboardButton("Pause", callback_data="pause")],
+        [InlineKeyboardButton("Resume", callback_data="resume")],
+        [InlineKeyboardButton("Status", callback_data="status")],
+        [InlineKeyboardButton("Stats", callback_data="stats")],
+        [InlineKeyboardButton("Recent", callback_data="recent")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(welcome, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def bind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -183,6 +193,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    chat_id = query.message.chat_id
     if data.startswith("download_"):
         req_id = data.split("_", 1)[1]
         from .storage import find_request_file
@@ -192,13 +203,78 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         try:
             await context.bot.send_document(
-                chat_id=query.message.chat_id,
+                chat_id=chat_id,
                 document=file_path,
                 filename=file_path.name,
                 caption=f"🆔 Full webhook: {req_id}"
             )
         except Exception as e:
             await query.edit_message_text(f"Failed to send file: {e}")
+    elif data == "bind":
+        site = "default"
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        if chat_id not in site_data["chats"]:
+            site_data["chats"].append(chat_id)
+            await save_data(data_dict)
+            await query.edit_message_text("✅ Bound to webhook notifications!")
+        else:
+            await query.edit_message_text("Already bound.")
+    elif data == "unbind":
+        site = "default"
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"]:
+            site_data["chats"].remove(chat_id)
+        if chat_id in site_data["paused_chats"]:
+            site_data["paused_chats"].remove(chat_id)
+        await save_data(data_dict)
+        await query.edit_message_text("❌ Unbound.")
+    elif data == "pause":
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"] and chat_id not in site_data["paused_chats"]:
+            site_data["paused_chats"].append(chat_id)
+            await save_data(data_dict)
+            await query.edit_message_text("⏸️ Notifications paused.")
+        else:
+            await query.edit_message_text("Not bound or already paused.")
+    elif data == "resume":
+        from .storage import load_data, save_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["paused_chats"]:
+            site_data["paused_chats"].remove(chat_id)
+            await save_data(data_dict)
+            await query.edit_message_text("▶️ Notifications resumed.")
+        else:
+            await query.edit_message_text("Not paused.")
+    elif data == "status":
+        from .storage import load_data
+        data_dict = await load_data()
+        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"]:
+            status_text = "✅ Active" if chat_id not in site_data["paused_chats"] else "⏸️ Paused"
+        else:
+            status_text = "❌ Not bound"
+        await query.edit_message_text(f"Status: {status_text}")
+    elif data == "stats":
+        from .storage import load_data
+        data_dict = await load_data()
+        stats_text = f"📊 Stats:\nTotal: {data_dict['stats']['total']}\nDaily: {data_dict['stats']['daily']}"
+        await query.edit_message_text(stats_text)
+    elif data == "recent":
+        from .storage import load_data
+        data_dict = await load_data()
+        recents = data_dict["recent"][:5]
+        if not recents:
+            await query.edit_message_text("No recent webhooks.")
+            return
+        text = "📋 Recent webhooks:\n" + "\n".join([f"🆔 {r['id']} ⏱️ {r['ts']}" for r in recents])
+        await query.edit_message_text(text)
 
 async def bind_other(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 1:
