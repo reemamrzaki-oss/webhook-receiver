@@ -44,6 +44,11 @@ app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.state.data_file = DATA_DIR / "data.json"
 
+@app.api_route("/webhook", methods=["GET","POST","PUT","DELETE","PATCH","OPTIONS","HEAD"])
+@limiter.limit(RATE_LIMIT)
+async def webhook_old(request: Request):
+    raise HTTPException(403, "Access denied. Use /webhook/{token} with a valid token.")
+
 @app.api_route("/webhook/{token}", methods=["GET","POST","PUT","DELETE","PATCH","OPTIONS","HEAD"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
@@ -79,7 +84,7 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     await update_stats_and_recent(req_id, ts)
     
     # Notify Telegram chats
-    await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site)
+    await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site, request)
 
     return {"request_id": req_id, "status": "received"}
 
@@ -100,14 +105,16 @@ async def download_file(req_id: str):
         headers={"Content-Disposition": f"attachment; filename=webhook_{req_id}.txt"}
     )
 
-async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url: str, headers: dict, body: bytes, site: str = "default"):
+async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url: str, headers: dict, body: bytes, site: str = "default", request: Request = None):
     try:
         print(f"Notifying Telegram for request {req_id}")
         from .bot import send_to_bound_chats
         preview_headers = str(headers)[:500] + '...' if len(str(headers)) > 500 else str(headers)
         preview_body = body.decode(errors='ignore')[:500] + '...' if len(body) > 500 else body.decode(errors='ignore')
-        msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}"
-        await send_to_bound_chats(msg, req_id, site)
+        host = request.client.host if request else "localhost"
+        download_url = f"http://{host}:{PORT}/file/{req_id}"
+        msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}\n🔗 {download_url}"
+        await send_to_bound_chats(msg, site)
         print(f"Notification sent for {req_id}")
     except Exception as e:
         print(f"Error notifying Telegram for {req_id}: {e}")
