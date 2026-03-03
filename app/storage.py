@@ -24,12 +24,14 @@ async def load_data() -> Dict[str, Any]:
             data = json.loads(content)
             # Ensure structure
             data.setdefault("sites", {"default": {"chats": [], "paused_chats": []}})
+            data.setdefault("tokens", {})  # token -> {"chat_id": int, "site": str}
             data.setdefault("stats", {"total": 0, "daily": 0, "reset_date": datetime.now().date().isoformat()})
             data.setdefault("recent", [])
             return data
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         return {
             "sites": {"default": {"chats": [], "paused_chats": []}},
+            "tokens": {},
             "stats": {"total": 0, "daily": 0, "reset_date": datetime.now().date().isoformat()},
             "recent": []
         }
@@ -100,6 +102,18 @@ async def get_bound_chats(site: str = "default") -> List[int]:
     site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
     active_chats = [chat for chat in site_data["chats"] if chat not in site_data["paused_chats"]]
     return active_chats
+
+async def generate_token(chat_id: int, site: str = "default") -> str:
+    import secrets
+    token = secrets.token_urlsafe(32)
+    data = await load_data()
+    data["tokens"][token] = {"chat_id": chat_id, "site": site}
+    await save_data(data)
+    return token
+
+async def verify_token(token: str) -> Optional[Dict[str, Any]]:
+    data = await load_data()
+    return data["tokens"].get(token)
 
 async def load_hashes() -> Dict[str, str]:
     try:

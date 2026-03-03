@@ -34,6 +34,7 @@ async def init_bot() -> Application:
     application.add_handler(CommandHandler("recent", recent))
     application.add_handler(CommandHandler("get", get_webhook))
     application.add_handler(CommandHandler("bind_other", bind_other))
+    application.add_handler(CommandHandler("generate_token", generate_token_cmd))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     return application
@@ -72,7 +73,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = """
 🔔 *Webhook Receiver Bot*
 
-Use the buttons below or type commands:
+Commands:
 /bind [site] - Bind this chat
 /bind_other <chat_id> [site] - Bind another chat
 /unbind [site] - Unbind this chat
@@ -82,18 +83,9 @@ Use the buttons below or type commands:
 /stats - Show stats
 /recent - Last 5 webhooks
 /get <id> - Download full webhook
+/generate_token [site] - Generate secure webhook URL
 """.strip()
-    keyboard = [
-        [InlineKeyboardButton("Bind Chat", callback_data="bind")],
-        [InlineKeyboardButton("Unbind Chat", callback_data="unbind")],
-        [InlineKeyboardButton("Pause", callback_data="pause")],
-        [InlineKeyboardButton("Resume", callback_data="resume")],
-        [InlineKeyboardButton("Status", callback_data="status")],
-        [InlineKeyboardButton("Stats", callback_data="stats")],
-        [InlineKeyboardButton("Recent", callback_data="recent")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(welcome, parse_mode='Markdown', reply_markup=reply_markup)
+    await update.message.reply_text(welcome, parse_mode='Markdown')
 
 async def bind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -295,3 +287,11 @@ async def bind_other(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Bound chat {other_chat_id} to webhook notifications for site '{site}'!")
     else:
         await update.message.reply_text("Already bound.")
+
+async def generate_token_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    site = context.args[0] if context.args else "default"
+    from .storage import generate_token
+    token = await generate_token(chat_id, site)
+    url = f"https://your-domain.com/webhook/{token}"  # Replace with actual domain
+    await update.message.reply_text(f"🔑 Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")

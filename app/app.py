@@ -44,9 +44,16 @@ app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.state.data_file = DATA_DIR / "data.json"
 
-@app.api_route("/webhook", methods=["GET","POST","PUT","DELETE","PATCH","OPTIONS","HEAD"])
+@app.api_route("/webhook/{token}", methods=["GET","POST","PUT","DELETE","PATCH","OPTIONS","HEAD"])
 @limiter.limit(RATE_LIMIT)
-async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
+async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
+    # Verify token
+    from .storage import verify_token
+    token_data = await verify_token(token)
+    if not token_data:
+        raise HTTPException(403, "Invalid token")
+    site = token_data["site"]
+    
     req_id = str(uuid4())
     ts = datetime.utcnow().isoformat()
     client_ip = request.client.host
@@ -54,7 +61,6 @@ async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
     full_url = str(request.url)
     headers = dict(request.headers)
     query_params = dict(request.query_params)
-    site = query_params.get("site", "default")
     
     body = await request.body()
     if len(body) > MAX_BODY_SIZE:
