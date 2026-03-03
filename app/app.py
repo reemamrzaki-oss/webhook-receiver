@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 import os
-import threading
+import multiprocessing
 import asyncio
 from pathlib import Path
 
@@ -26,17 +26,19 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: init bot and start polling in thread
+    # Startup: init bot and start polling in process
     from .bot import init_bot
     app.state.bot_app = await init_bot()
     def run_polling():
         import asyncio
         asyncio.set_event_loop(asyncio.new_event_loop())
         app.state.bot_app.run_polling(drop_pending_updates=True)
-    thread = threading.Thread(target=run_polling, daemon=True)
-    thread.start()
+    process = multiprocessing.Process(target=run_polling, daemon=True)
+    process.start()
     yield
     # Shutdown
+    if process.is_alive():
+        process.terminate()
 
 app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
 
