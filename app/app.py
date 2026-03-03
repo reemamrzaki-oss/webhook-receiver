@@ -31,8 +31,7 @@ async def lifespan(app: FastAPI):
     async def run_polling():
         from .bot import init_bot
         bot_app = await init_bot()
-        await bot_app.initialize()
-        await bot_app.start_polling(drop_pending_updates=True)
+        bot_app.run_polling(drop_pending_updates=True)
     def start_polling():
         import asyncio
         asyncio.run(run_polling())
