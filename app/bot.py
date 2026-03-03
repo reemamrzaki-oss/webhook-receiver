@@ -39,7 +39,7 @@ async def init_bot() -> Application:
     
     return application
 
-async def send_to_bound_chats(msg: str, site: str = "default"):
+async def send_to_bound_chats(msg: str, site: str = "default", req_id: str = None):
     global application
     if not application:
         print("No application")
@@ -52,13 +52,18 @@ async def send_to_bound_chats(msg: str, site: str = "default"):
         print(f"Using default chat: {chats}")
 
     print(f"Sending to chats: {chats}")
+    reply_markup = None
+    if req_id:
+        keyboard = [[InlineKeyboardButton("Download File", callback_data=f"download_{req_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
     for chat_id in chats:
         try:
             await application.bot.send_message(
                 chat_id=chat_id,
                 text=msg,
                 disable_web_page_preview=True,
-                parse_mode=None  # Safe for Telegram
+                parse_mode=None,  # Safe for Telegram
+                reply_markup=reply_markup
             )
             print(f"Message sent to {chat_id}")
         except Exception as e:
@@ -222,6 +227,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
     chat_id = query.message.chat_id
+    if data.startswith("download_"):
+        req_id = data.split("_", 1)[1]
+        from .storage import find_request_file
+        file_path = await find_request_file(req_id)
+        if not file_path or not file_path.exists():
+            await query.edit_message_text("❌ Webhook file not found.")
+            return
+        try:
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=file_path,
+                filename=file_path.name,
+                caption=f"🆔 Full webhook: {req_id}"
+            )
+        except Exception as e:
+            await query.edit_message_text(f"Failed to send file: {e}")
+        return
     if data == "bind":
         site = "default"
         from .storage import load_data, save_data
