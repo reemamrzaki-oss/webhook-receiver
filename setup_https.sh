@@ -7,40 +7,28 @@ set -e
 
 echo "Setting up HTTPS for webhook receiver..."
 
-# 1. Install acme.sh
-echo "Installing acme.sh..."
-curl https://get.acme.sh | sh -s email=your-email@example.com
-source ~/.bashrc
-export PATH="$HOME/.acme.sh:$PATH"
-
-# 2. Open port 80 and request certificate for IP
-echo "Opening port 80 and requesting certificate for IP 158.62.198.119..."
-sudo ufw allow 80/tcp
-acme.sh --issue --standalone -d 158.62.198.119 --server letsencrypt
-
-# 3. Create SSL directory and copy certificates
-echo "Setting up SSL certificates..."
+# 1. Generate self-signed certificate (Let's Encrypt doesn't support IP certificates)
+echo "Generating self-signed SSL certificate..."
 sudo mkdir -p /opt/webhook/ssl
-sudo cp ~/.acme.sh/158.62.198.119/fullchain.cer /opt/webhook/ssl/fullchain.pem
-sudo cp ~/.acme.sh/158.62.198.119/158.62.198.119.key /opt/webhook/ssl/privkey.pem
+sudo openssl req -x509 -newkey rsa:4096 -keyout /opt/webhook/ssl/privkey.pem -out /opt/webhook/ssl/fullchain.pem -days 365 -nodes -subj "/C=US/ST=State/L=City/O=Organization/CN=158.62.198.119"
 sudo chmod 600 /opt/webhook/ssl/privkey.pem
 sudo chmod 644 /opt/webhook/ssl/fullchain.pem
 sudo chown root:root /opt/webhook/ssl/*
 
-# 4. Modify FastAPI app to use SSL
+# 2. Modify FastAPI app to use SSL
 echo "Updating FastAPI app for SSL..."
 sudo sed -i 's/uvicorn.run(app, host="0.0.0.0", port=PORT)/uvicorn.run(app, host="0.0.0.0", port=PORT, ssl_keyfile="\/opt\/webhook\/ssl\/privkey.pem", ssl_certfile="\/opt\/webhook\/ssl\/fullchain.pem")/' /opt/webhook/app/app.py
 
-# 5. Restart webhook service
+# 3. Restart webhook service
 echo "Restarting webhook service..."
 sudo systemctl restart webhook
 
-# 6. Set up automatic renewal
-echo "Setting up automatic renewal..."
-(crontab -l ; echo "0 0 * * * sudo ufw allow 80/tcp && ~/.acme.sh/acme.sh --cron --home ~/.acme.sh && sudo ufw delete allow 80/tcp && sudo systemctl restart webhook") | crontab -
+# 4. Set up certificate renewal (manual - self-signed)
+echo "Self-signed certificate created. Renew manually when needed:"
+echo "sudo openssl req -x509 -newkey rsa:4096 -keyout /opt/webhook/ssl/privkey.pem -out /opt/webhook/ssl/fullchain.pem -days 365 -nodes -subj \"/C=US/ST=State/L=City/O=Organization/CN=158.62.198.119\""
+echo "Then restart: sudo systemctl restart webhook"
 
-# Port 80 remains open for future renewals
-
-echo "HTTPS setup complete!"
+echo "HTTPS setup complete with self-signed certificate!"
 echo "New HTTPS URL: https://158.62.198.119:8443/webhook/{token}?site=..."
+echo "Note: Browsers will show security warning for self-signed cert"
 echo "Test with: curl -k https://158.62.198.119:8443/health"
