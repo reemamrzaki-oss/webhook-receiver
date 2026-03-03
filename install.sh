@@ -48,14 +48,12 @@ echo "BOT_TOKEN=$BOT_TOKEN" >> .env
 chown webhook:webhook .env
 
 # Create virtualenv and install deps
+python3 -m venv venv
+chown -R webhook:webhook venv
 su - webhook -c "
-  python3 -m venv venv
   source venv/bin/activate
-  pip install --upgrade pip
   pip install -r requirements.txt
 "
-
-chown -R webhook:webhook venv
 
 echo_green "✅ Python environment setup complete"
 
