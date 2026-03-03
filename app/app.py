@@ -64,9 +64,8 @@ async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
     await save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
     await update_stats_and_recent(req_id, ts)
     
-    # Async notify Telegram chats
-    background_tasks.add_task(notify_telegram_chats, req_id, client_ip, ts, method, full_url, headers, body)
-    print(f"Added background task for request {req_id}")
+# Notify Telegram chats
+    await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body)
 
     return {"request_id": req_id, "status": "received"}
 
