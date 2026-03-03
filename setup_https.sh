@@ -13,8 +13,9 @@ curl https://get.acme.sh | sh -s email=your-email@example.com
 source ~/.bashrc
 export PATH="$HOME/.acme.sh:$PATH"
 
-# 2. Request certificate for IP
-echo "Requesting certificate for IP 158.62.198.119..."
+# 2. Open port 80 and request certificate for IP
+echo "Opening port 80 and requesting certificate for IP 158.62.198.119..."
+sudo ufw allow 80/tcp
 acme.sh --issue --standalone -d 158.62.198.119 --server letsencrypt
 
 # 3. Create SSL directory and copy certificates
@@ -36,11 +37,9 @@ sudo systemctl restart webhook
 
 # 6. Set up automatic renewal
 echo "Setting up automatic renewal..."
-(crontab -l ; echo "0 0 * * * ~/.acme.sh/acme.sh --cron --home ~/.acme.sh && sudo systemctl restart webhook") | crontab -
+(crontab -l ; echo "0 0 * * * sudo ufw allow 80/tcp && ~/.acme.sh/acme.sh --cron --home ~/.acme.sh && sudo ufw delete allow 80/tcp && sudo systemctl restart webhook") | crontab -
 
-# 7. Close port 80 (optional)
-echo "Closing port 80..."
-sudo ufw delete allow 80/tcp || true
+# Port 80 remains open for future renewals
 
 echo "HTTPS setup complete!"
 echo "New HTTPS URL: https://158.62.198.119:8443/webhook/{token}?site=..."
