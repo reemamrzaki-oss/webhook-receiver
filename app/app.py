@@ -26,15 +26,15 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: init bot and start polling in thread
+    # Startup: init bot and start polling in process
     from .bot import init_bot
     app.state.bot_app = await init_bot()
+    from multiprocessing import Process
     def run_polling():
         import asyncio
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        app.state.bot_app.run_polling(drop_pending_updates=True)
-    thread = threading.Thread(target=run_polling, daemon=True)
-    thread.start()
+        asyncio.run(app.state.bot_app.run_polling(drop_pending_updates=True))
+    process = Process(target=run_polling, daemon=True)
+    process.start()
     yield
     # Shutdown
 
