@@ -38,7 +38,9 @@ class DynamicCORSMiddleware:
             headers = dict(scope.get("headers", []))
             origin = headers.get(b"origin", b"").decode()
             method = scope.get("method", b"").decode()
+            print(f"Middleware: Method={method}, Origin='{origin}', Path={scope.get('path', '')}")
             if method == "OPTIONS" and origin:
+                print("Handling preflight")
                 # Handle preflight request
                 async def preflight_send(message):
                     if message["type"] == "http.response.start":
@@ -55,6 +57,7 @@ class DynamicCORSMiddleware:
                 await preflight_send({"type": "http.response.body", "body": b""})
                 return
             elif origin:
+                print("Adding CORS headers to response")
                 # Add CORS headers to actual requests
                 async def send_wrapper(message):
                     if message["type"] == "http.response.start":
@@ -92,12 +95,12 @@ app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.state.data_file = DATA_DIR / "data.json"
 
-@app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","OPTIONS","TRACE","PATCH"])
+@app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_old(request: Request):
     raise HTTPException(403, "Access denied. Use /webhook/{token} with a valid token.")
 
-@app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","OPTIONS","TRACE","PATCH"])
+@app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
     # Verify token
