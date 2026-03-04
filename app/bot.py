@@ -46,7 +46,7 @@ async def send_to_bound_chats(msg: str, site: str = "default", req_id: str = Non
         return
 
     from .storage import get_bound_chats
-    chats: List[int] = await get_bound_chats(site)
+    chats: List[int] = get_bound_chats(site)
     if not chats and DEFAULT_CHAT_ID:
         chats = [int(DEFAULT_CHAT_ID)]
         print(f"Using default chat: {chats}")
@@ -218,7 +218,7 @@ async def generate_token_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat_id = update.effective_chat.id
     site = context.args[0] if context.args else "default"
     from .storage import generate_token
-    token = await generate_token(chat_id, site)
+    token = generate_token(chat_id, site)
     url = f"https://158.62.198.119:8443/webhook/{token}"
     await update.message.reply_text(f"Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
 

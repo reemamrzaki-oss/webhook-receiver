@@ -17,11 +17,10 @@ HASHES_FILE = DATA_DIR / "hashes.json"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-async def load_data() -> Dict[str, Any]:
+def load_data() -> Dict[str, Any]:
     try:
-        async with aiofiles.open(DATA_FILE, mode='r') as f:
-            content = await f.read()
-            data = json.loads(content)
+        with open(DATA_FILE, 'r') as f:
+            data = json.load(f)
             # Ensure structure
             data.setdefault("sites", {"default": {"chats": [], "paused_chats": []}})
             data.setdefault("tokens", {})  # token -> {"chat_id": int, "site": str}
@@ -36,11 +35,11 @@ async def load_data() -> Dict[str, Any]:
             "recent": []
         }
 
-async def save_data(data: Dict[str, Any]):
-    async with aiofiles.open(DATA_FILE, mode='w') as f:
-        await f.write(json.dumps(data, indent=2))
+def save_data(data: Dict[str, Any]):
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
 
-async def save_webhook_request(
+def save_webhook_request(
     req_id: str,
     ts: str,
     client_ip: str,
@@ -73,11 +72,11 @@ BODY:
 {body.decode('utf-8', errors='replace')}
 """
     
-    async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
-        await f.write(content)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(content)
 
-async def update_stats_and_recent(req_id: str, ts: str):
-    data = await load_data()
+def update_stats_and_recent(req_id: str, ts: str):
+    data = load_data()
     data["stats"]["total"] += 1
     
     today = datetime.now().date().isoformat()
@@ -90,49 +89,51 @@ async def update_stats_and_recent(req_id: str, ts: str):
     data["recent"].insert(0, {"id": req_id, "ts": ts})
     data["recent"] = data["recent"][:5]
     
-    await save_data(data)
+    save_data(data)
 
-async def find_request_file(req_id: str) -> Optional[Path]:
+def find_request_file(req_id: str) -> Optional[Path]:
     for file_path in DATA_DIR.rglob(f"{req_id}_*.txt"):
         return file_path
     return None
 
-async def get_bound_chats(site: str = "default") -> List[int]:
-    data = await load_data()
+def get_bound_chats(site: str = "default") -> List[int]:
+    data = load_data()
     site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
     active_chats = [chat for chat in site_data["chats"] if chat not in site_data["paused_chats"]]
     return active_chats
 
-async def generate_token(chat_id: int, site: str = "default") -> str:
+def generate_token(chat_id: int, site: str = "default") -> str:
     import secrets
     token = secrets.token_urlsafe(32)
-    data = await load_data()
+    data = load_data()
     data["tokens"][token] = {"chat_id": chat_id, "site": site}
-    await save_data(data)
+    save_data(data)
     return token
 
-async def verify_token(token: str) -> Optional[Dict[str, Any]]:
-    data = await load_data()
-    return data["tokens"].get(token)
+def verify_token(token: str) -> Optional[str]:
+    data = load_data()
+    token_data = data["tokens"].get(token)
+    if token_data:
+        return token_data["site"]
+    return None
 
-async def load_hashes() -> Dict[str, str]:
+def load_hashes() -> Dict[str, Any]:
     try:
-        async with aiofiles.open(HASHES_FILE, mode='r') as f:
-            content = await f.read()
-            return json.loads(content)
+        with open(HASHES_FILE, 'r') as f:
+            return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-async def save_hashes(hashes: Dict[str, str]):
-    async with aiofiles.open(HASHES_FILE, mode='w') as f:
-        await f.write(json.dumps(hashes, indent=2))
+def save_hashes(hashes: Dict[str, Any]):
+    with open(HASHES_FILE, 'w') as f:
+        json.dump(hashes, f, indent=2)
 
-async def is_duplicate_request(headers: Dict[str, str], body: bytes) -> bool:
+def is_duplicate_request(headers: Dict[str, str], body: bytes) -> bool:
     # Compute SHA-256 of headers + body
     hash_input = json.dumps(headers, sort_keys=True) + body.decode('utf-8', errors='replace')
     hash_value = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
     
-    hashes = await load_hashes()
+    hashes = load_hashes()
     now = datetime.utcnow()
     
     # Check if hash exists and is within last 5 minutes
@@ -149,5 +150,5 @@ async def is_duplicate_request(headers: Dict[str, str], body: bytes) -> bool:
     for h in to_remove:
         del hashes[h]
     
-    await save_hashes(hashes)
+    save_hashes(hashes)
     return False
