@@ -100,7 +100,7 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     if not token_data:
         raise HTTPException(403, "Invalid token")
     site = token_data["site"]
-    
+
     req_id = str(uuid4())
     ts = datetime.utcnow().isoformat()
     client_ip = request.client.host
@@ -108,36 +108,35 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     full_url = str(request.url)
     headers = dict(request.headers)
     query_params = dict(request.query_params)
-    
+
     if request.method == "GET":
         body = request.query_params.get("data", "").encode()
     else:
         body = await request.body()
     if len(body) > MAX_BODY_SIZE:
         raise HTTPException(413, "Payload too large")
-    
+
     # Check for duplicates
     from .storage import is_duplicate_request
-    if is_duplicate_request(headers, body):
+    is_duplicate = is_duplicate_request(headers, body)
+    if is_duplicate:
         print(f"Duplicate request detected for {req_id}, skipping save.")
         # Still notify? Maybe not, or log warning
-        if request.method == "GET":
-            return Response(content=TRANSPARENT_PNG, media_type="image/png")
-        else:
-            return {"request_id": req_id, "status": "duplicate"}
-    
-    # Save to file and update stats
-    from .storage import save_webhook_request, update_stats_and_recent
-    save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
-    update_stats_and_recent(req_id, ts)
-    
-    # Notify Telegram chats
-    await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site, request)
+    else:
+        # Save to file and update stats
+        from .storage import save_webhook_request, update_stats_and_recent
+        save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
+        update_stats_and_recent(req_id, ts)
 
+        # Notify Telegram chats
+        await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site, request)
+
+    # Determine response based on method and duplicate status
     if request.method == "GET":
         return Response(content=TRANSPARENT_PNG, media_type="image/png")
     else:
-        return {"request_id": req_id, "status": "received"}
+        status = "duplicate" if is_duplicate else "received"
+        return {"request_id": req_id, "status": status}
 
 @app.get("/health")
 async def health():
