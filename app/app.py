@@ -9,7 +9,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, Response
-from starlette.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
@@ -46,26 +45,42 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.state.data_file = DATA_DIR / "data.json"
 
-@app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
+@app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH","OPTIONS"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_old(request: Request):
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        origin = request.headers.get("origin", "*")
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,CONNECT,TRACE,PATCH,OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "false",
+            "Vary": "origin"
+        }
+        return Response(status_code=200, headers=headers)
+
     raise HTTPException(403, "Access denied. Use /webhook/{token} with a valid token.")
 
-@app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
+@app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH","OPTIONS"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        origin = request.headers.get("origin", "*")
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,CONNECT,TRACE,PATCH,OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "false",
+            "Vary": "origin"
+        }
+        return Response(status_code=200, headers=headers)
+
     # Verify token
     from .storage import verify_token
     token_data = await verify_token(token)
@@ -103,11 +118,16 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site, request)
 
     # Determine response based on method and duplicate status
+    origin = request.headers.get("origin", "*")
+    cors_headers = {
+        "Access-Control-Allow-Origin": origin,
+        "Vary": "origin"
+    }
     if request.method == "GET":
-        return Response(content=TRANSPARENT_PNG, media_type="image/png")
+        return Response(content=TRANSPARENT_PNG, media_type="image/png", headers=cors_headers)
     else:
         status = "duplicate" if is_duplicate else "received"
-        return {"request_id": req_id, "status": status}
+        return Response(content=f'{{"request_id": "{req_id}", "status": "{status}"}}', media_type="application/json", headers=cors_headers)
 
 @app.get("/health")
 async def health():
