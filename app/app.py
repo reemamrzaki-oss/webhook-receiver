@@ -49,38 +49,38 @@ app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.state.data_file = DATA_DIR / "data.json"
 
-@app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH","OPTIONS"])
+@app.options("/webhook")
+async def webhook_options_base(request: Request):
+    origin = request.headers.get("origin", "*")
+    headers = {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,CONNECT,TRACE,PATCH,OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "false",
+        "Vary": "origin"
+    }
+    return Response(status_code=200, headers=headers)
+
+@app.options("/webhook/{token}")
+async def webhook_options(token: str, request: Request):
+    origin = request.headers.get("origin", "*")
+    headers = {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,CONNECT,TRACE,PATCH,OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Credentials": "false",
+        "Vary": "origin"
+    }
+    return Response(status_code=200, headers=headers)
+
+@app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_old(request: Request):
-    # Handle preflight OPTIONS request
-    if request.method == "OPTIONS":
-        origin = request.headers.get("origin", "*")
-        headers = {
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,CONNECT,TRACE,PATCH,OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "false",
-            "Vary": "origin"
-        }
-        return Response(status_code=200, headers=headers)
-
     raise HTTPException(403, "Access denied. Use /webhook/{token} with a valid token.")
 
-@app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH","OPTIONS"])
+@app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
-    # Handle preflight OPTIONS request
-    if request.method == "OPTIONS":
-        origin = request.headers.get("origin", "*")
-        headers = {
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,CONNECT,TRACE,PATCH,OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "false",
-            "Vary": "origin"
-        }
-        return Response(status_code=200, headers=headers)
-
     # Verify token
     from .storage import verify_token
     token_data = await verify_token(token)
