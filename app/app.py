@@ -35,18 +35,33 @@ class DynamicCORSMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] == "http":
-            # Get origin from request headers
             headers = dict(scope.get("headers", []))
             origin = headers.get(b"origin", b"").decode()
-            if origin:
-                # Temporarily set the CORS middleware to allow this origin
-                # We'll use a simple ASGI middleware to add the header
+            method = scope.get("method", b"").decode()
+            if method == "OPTIONS" and origin:
+                # Handle preflight request
+                async def preflight_send(message):
+                    if message["type"] == "http.response.start":
+                        message["status"] = 200
+                        message["headers"] = [
+                            (b"access-control-allow-origin", origin.encode()),
+                            (b"access-control-allow-methods", b"GET,HEAD,POST,PUT,DELETE,CONNECT,OPTIONS,TRACE,PATCH"),
+                            (b"access-control-allow-headers", b"*"),
+                            (b"access-control-allow-credentials", b"true"),
+                            (b"vary", b"origin"),
+                        ]
+                    await send(message)
+                await preflight_send({"type": "http.response.start", "status": 200, "headers": []})
+                await preflight_send({"type": "http.response.body", "body": b""})
+                return
+            elif origin:
+                # Add CORS headers to actual requests
                 async def send_wrapper(message):
                     if message["type"] == "http.response.start":
-                        headers = message.get("headers", [])
-                        headers.append((b"access-control-allow-origin", origin.encode()))
-                        headers.append((b"vary", b"origin"))
-                        message["headers"] = headers
+                        resp_headers = message.get("headers", [])
+                        resp_headers.append((b"access-control-allow-origin", origin.encode()))
+                        resp_headers.append((b"vary", b"origin"))
+                        message["headers"] = resp_headers
                     await send(message)
                 await self.app(scope, receive, send_wrapper)
                 return
@@ -70,17 +85,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
 
-# Dynamic CORS middleware for secure origin echoing
+# Dynamic CORS middleware for secure origin echoing and preflight handling
 app.add_middleware(DynamicCORSMiddleware)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # will be overridden by the dynamic one
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
@@ -116,20 +122,19 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     if len(body) > MAX_BODY_SIZE:
         raise HTTPException(413, "Payload too large")
 
-    # Check for duplicates
+# Check for duplicates (but don't skip processing)
     from .storage import is_duplicate_request
     is_duplicate = is_duplicate_request(headers, body)
     if is_duplicate:
-        print(f"Duplicate request detected for {req_id}, skipping save.")
-        # Still notify? Maybe not, or log warning
-    else:
-        # Save to file and update stats
-        from .storage import save_webhook_request, update_stats_and_recent
-        save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
-        update_stats_and_recent(req_id, ts)
+        print(f"Duplicate request detected for {req_id}, but processing anyway.")
 
-        # Notify Telegram chats
-        await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site, request)
+    # Always save to file and update stats
+    from .storage import save_webhook_request, update_stats_and_recent
+    save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
+    update_stats_and_recent(req_id, ts)
+
+    # Always notify Telegram chats
+    await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site, request)
 
     # Determine response based on method and duplicate status
     if request.method == "GET":
