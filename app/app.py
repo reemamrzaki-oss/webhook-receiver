@@ -59,12 +59,12 @@ app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.state.data_file = DATA_DIR / "data.json"
 
-@app.api_route("/webhook", methods=["GET","POST","PUT","DELETE","PATCH","OPTIONS","HEAD"])
+@app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","OPTIONS","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_old(request: Request):
     raise HTTPException(403, "Access denied. Use /webhook/{token} with a valid token.")
 
-@app.api_route("/webhook/{token}", methods=["GET","POST","PUT","DELETE","PATCH","OPTIONS","HEAD"])
+@app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","OPTIONS","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
     # Verify token
