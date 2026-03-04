@@ -49,7 +49,7 @@ class DynamicCORSMiddleware:
                             (b"access-control-allow-origin", origin.encode()),
                             (b"access-control-allow-methods", b"GET,HEAD,POST,PUT,DELETE,CONNECT,OPTIONS,TRACE,PATCH"),
                             (b"access-control-allow-headers", b"*"),
-                            (b"access-control-allow-credentials", b"true"),
+                            (b"access-control-allow-credentials", b"false"),
                             (b"vary", b"origin"),
                         ]
                     await send(message)
