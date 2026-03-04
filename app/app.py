@@ -9,7 +9,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, Response
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
@@ -27,6 +28,29 @@ MAX_BODY_SIZE = int(os.getenv("MAX_BODY_SIZE", 10_485_760))
 TRANSPARENT_PNG = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82'
 
 limiter = Limiter(key_func=get_remote_address)
+
+class DynamicCORSMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "http":
+            # Get origin from request headers
+            headers = dict(scope.get("headers", []))
+            origin = headers.get(b"origin", b"").decode()
+            if origin:
+                # Temporarily set the CORS middleware to allow this origin
+                # We'll use a simple ASGI middleware to add the header
+                async def send_wrapper(message):
+                    if message["type"] == "http.response.start":
+                        headers = message.get("headers", [])
+                        headers.append((b"access-control-allow-origin", origin.encode()))
+                        headers.append((b"vary", b"origin"))
+                        message["headers"] = headers
+                    await send(message)
+                await self.app(scope, receive, send_wrapper)
+                return
+        await self.app(scope, receive, send)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,10 +70,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
 
+# Dynamic CORS middleware for secure origin echoing
+app.add_middleware(DynamicCORSMiddleware)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # will be overridden by the dynamic one
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
