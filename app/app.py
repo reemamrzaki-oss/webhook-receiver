@@ -8,7 +8,8 @@ import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
@@ -21,6 +22,9 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/opt/webhook-data"))
 PORT = int(os.getenv("PORT", 8443))
 RATE_LIMIT = os.getenv("RATE_LIMIT", "100/minute")
 MAX_BODY_SIZE = int(os.getenv("MAX_BODY_SIZE", 10_485_760))
+
+# 1x1 transparent PNG for image beacon fallback
+TRANSPARENT_PNG = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82'
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -41,6 +45,15 @@ async def lifespan(app: FastAPI):
         process.terminate()
 
 app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
@@ -69,7 +82,10 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     headers = dict(request.headers)
     query_params = dict(request.query_params)
     
-    body = await request.body()
+    if request.method == "GET":
+        body = request.query_params.get("data", "").encode()
+    else:
+        body = await request.body()
     if len(body) > MAX_BODY_SIZE:
         raise HTTPException(413, "Payload too large")
     
@@ -78,7 +94,10 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     if is_duplicate_request(headers, body):
         print(f"Duplicate request detected for {req_id}, skipping save.")
         # Still notify? Maybe not, or log warning
-        return {"request_id": req_id, "status": "duplicate"}
+        if request.method == "GET":
+            return Response(content=TRANSPARENT_PNG, media_type="image/png")
+        else:
+            return {"request_id": req_id, "status": "duplicate"}
     
     # Save to file and update stats
     from .storage import save_webhook_request, update_stats_and_recent
@@ -88,7 +107,10 @@ async def webhook_endpoint(token: str, request: Request, background_tasks: Backg
     # Notify Telegram chats
     await notify_telegram_chats(req_id, client_ip, ts, method, full_url, headers, body, site, request)
 
-    return {"request_id": req_id, "status": "received"}
+    if request.method == "GET":
+        return Response(content=TRANSPARENT_PNG, media_type="image/png")
+    else:
+        return {"request_id": req_id, "status": "received"}
 
 @app.get("/health")
 async def health():
