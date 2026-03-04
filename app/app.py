@@ -10,7 +10,6 @@ from pathlib import Path
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.cors import CORSMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
@@ -28,47 +27,6 @@ MAX_BODY_SIZE = int(os.getenv("MAX_BODY_SIZE", 10_485_760))
 TRANSPARENT_PNG = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82'
 
 limiter = Limiter(key_func=get_remote_address)
-
-class DynamicCORSMiddleware:
-    def __init__(self, app: ASGIApp):
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] == "http":
-            headers = dict(scope.get("headers", []))
-            origin = headers.get(b"origin", b"").decode()
-            method = scope.get("method", b"").decode()
-            print(f"Middleware: Method={method}, Origin='{origin}', Path={scope.get('path', '')}")
-            if method == "OPTIONS" and origin:
-                print("Handling preflight")
-                # Handle preflight request
-                async def preflight_send(message):
-                    if message["type"] == "http.response.start":
-                        message["status"] = 200
-                        message["headers"] = [
-                            (b"access-control-allow-origin", origin.encode()),
-                            (b"access-control-allow-methods", b"GET,HEAD,POST,PUT,DELETE,CONNECT,OPTIONS,TRACE,PATCH"),
-                            (b"access-control-allow-headers", b"*"),
-                            (b"access-control-allow-credentials", b"false"),
-                            (b"vary", b"origin"),
-                        ]
-                    await send(message)
-                await preflight_send({"type": "http.response.start", "status": 200, "headers": []})
-                await preflight_send({"type": "http.response.body", "body": b""})
-                return
-            elif origin:
-                print("Adding CORS headers to response")
-                # Add CORS headers to actual requests
-                async def send_wrapper(message):
-                    if message["type"] == "http.response.start":
-                        resp_headers = message.get("headers", [])
-                        resp_headers.append((b"access-control-allow-origin", origin.encode()))
-                        resp_headers.append((b"vary", b"origin"))
-                        message["headers"] = resp_headers
-                    await send(message)
-                await self.app(scope, receive, send_wrapper)
-                return
-        await self.app(scope, receive, send)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -88,8 +46,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
 
-# Dynamic CORS middleware for secure origin echoing and preflight handling
-app.add_middleware(DynamicCORSMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.add_middleware(SlowAPIMiddleware)
 app.state.limiter = limiter
