@@ -115,7 +115,7 @@ async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url:
         from .bot import send_to_bound_chats
         preview_headers = str(headers)[:500] + '...' if len(str(headers)) > 500 else str(headers)
         preview_body = body.decode(errors='ignore')[:500] + '...' if len(body) > 500 else body.decode(errors='ignore')
-        download_url = f"http://158.62.198.119:{PORT}/file/{req_id}"
+        download_url = f"https://158.62.198.119:{PORT}/file/{req_id}"
         msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url}\n📋 Headers: {preview_headers}\n📄 Body: {preview_body}\n🔗 {download_url}"
         await send_to_bound_chats(msg, site, req_id)
         print(f"Notification sent for {req_id}")

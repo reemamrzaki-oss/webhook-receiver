@@ -219,7 +219,7 @@ async def generate_token_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     site = context.args[0] if context.args else "default"
     from .storage import generate_token
     token = await generate_token(chat_id, site)
-    url = f"http://158.62.198.119:8443/webhook/{token}"
+    url = f"https://158.62.198.119:8443/webhook/{token}"
     await update.message.reply_text(f"Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
