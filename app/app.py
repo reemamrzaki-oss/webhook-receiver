@@ -144,7 +144,7 @@ async def health():
 async def download_file(req_id: str, request: Request):
     # Basic security: only allow if request has valid referer or something, but for now, rate limited
     from .storage import find_request_file
-    file_path = await find_request_file(req_id)
+    file_path = find_request_file(req_id)
     if not file_path or not file_path.exists():
         raise HTTPException(404, "File not found")
     return FileResponse(
