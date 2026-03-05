@@ -178,7 +178,7 @@ async def get_webhook(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     req_id = context.args[0]
     from .storage import find_request_file
-    file_path = await find_request_file(req_id)
+    file_path = find_request_file(req_id)
     if not file_path or not file_path.exists():
         await update.message.reply_text("❌ Webhook not found.")
         return
@@ -230,7 +230,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("download_"):
         req_id = data.split("_", 1)[1]
         from .storage import find_request_file
-        file_path = await find_request_file(req_id)
+        file_path = find_request_file(req_id)
         if not file_path or not file_path.exists():
             await query.edit_message_text("❌ Webhook file not found.")
             return
