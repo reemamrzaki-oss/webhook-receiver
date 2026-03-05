@@ -69,10 +69,10 @@ async def webhook_old(request: Request):
 async def webhook_endpoint(token: str, request: Request, background_tasks: BackgroundTasks):
     # Verify token
     from .storage import verify_token
-    token_data = await verify_token(token)
+    token_data = verify_token(token)
     if not token_data:
         raise HTTPException(403, "Invalid token")
-    site = token_data["site"]
+    site = token_data
 
     req_id = str(uuid4())
     ts = datetime.utcnow().isoformat()
