@@ -10,6 +10,7 @@ import urllib.parse
 
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -46,6 +47,11 @@ async def lifespan(app: FastAPI):
         process.terminate()
 
 app = FastAPI(title="Webhook Receiver", lifespan=lifespan)
+
+# Serve static JS files from /static (e.g. /static/x.js)
+STATIC_DIR = Path(__file__).parent / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.add_middleware(
     CORSMiddleware,
