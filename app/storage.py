@@ -2,6 +2,7 @@ import aiofiles
 import asyncio
 import json
 import hashlib
+import fcntl
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -13,9 +14,21 @@ load_dotenv()
 DATA_DIR = Path(os.getenv("DATA_DIR", "/opt/webhook-data"))
 DATA_FILE = DATA_DIR / "data.json"
 HASHES_FILE = DATA_DIR / "hashes.json"
+LOCK_FILE = DATA_DIR / ".data.lock"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+class DataLock:
+    """File-based lock to prevent race conditions on data.json"""
+    def __enter__(self):
+        self.fp = open(LOCK_FILE, 'w')
+        fcntl.flock(self.fp, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *args):
+        fcntl.flock(self.fp, fcntl.LOCK_UN)
+        self.fp.close()
 
 def load_data() -> Dict[str, Any]:
     try:
@@ -76,20 +89,21 @@ BODY:
         f.write(content)
 
 def update_stats_and_recent(req_id: str, ts: str):
-    data = load_data()
-    data["stats"]["total"] += 1
-    
-    today = datetime.now().date().isoformat()
-    if data["stats"]["reset_date"] != today:
-        data["stats"]["daily"] = 1
-        data["stats"]["reset_date"] = today
-    else:
-        data["stats"]["daily"] += 1
-    
-    data["recent"].insert(0, {"id": req_id, "ts": ts})
-    data["recent"] = data["recent"][:5]
-    
-    save_data(data)
+    with DataLock():
+        data = load_data()
+        data["stats"]["total"] += 1
+        
+        today = datetime.now().date().isoformat()
+        if data["stats"]["reset_date"] != today:
+            data["stats"]["daily"] = 1
+            data["stats"]["reset_date"] = today
+        else:
+            data["stats"]["daily"] += 1
+        
+        data["recent"].insert(0, {"id": req_id, "ts": ts})
+        data["recent"] = data["recent"][:5]
+        
+        save_data(data)
 
 def find_request_file(req_id: str) -> Optional[Path]:
     for file_path in DATA_DIR.rglob(f"{req_id}_*.txt"):
@@ -97,25 +111,28 @@ def find_request_file(req_id: str) -> Optional[Path]:
     return None
 
 def get_bound_chats(site: str = "default") -> List[int]:
-    data = load_data()
-    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
-    active_chats = [chat for chat in site_data["chats"] if chat not in site_data["paused_chats"]]
-    return active_chats
+    with DataLock():
+        data = load_data()
+        site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        active_chats = [chat for chat in site_data["chats"] if chat not in site_data["paused_chats"]]
+        return active_chats
 
 def generate_token(chat_id: int, site: str = "default") -> str:
     import secrets
     token = secrets.token_urlsafe(32)
-    data = load_data()
-    data["tokens"][token] = {"chat_id": chat_id, "site": site}
-    save_data(data)
+    with DataLock():
+        data = load_data()
+        data["tokens"][token] = {"chat_id": chat_id, "site": site}
+        save_data(data)
     return token
 
 def verify_token(token: str) -> Optional[str]:
-    data = load_data()
-    token_data = data["tokens"].get(token)
-    if token_data:
-        return token_data["site"]
-    return None
+    with DataLock():
+        data = load_data()
+        token_data = data["tokens"].get(token)
+        if token_data:
+            return token_data["site"]
+        return None
 
 def load_hashes() -> Dict[str, Any]:
     try:
