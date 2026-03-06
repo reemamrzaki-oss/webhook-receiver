@@ -101,70 +101,80 @@ Use the buttons below or type commands:
 async def bind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     site = context.args[0] if context.args else "default"
-    from .storage import load_data, save_data
-    data = await load_data()
-    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
-    if chat_id not in site_data["chats"]:
-        site_data["chats"].append(chat_id)
-        await save_data(data)
-        await update.message.reply_text(f"✅ Bound to webhook notifications for site '{site}'!")
-    else:
-        await update.message.reply_text("Already bound.")
+    from .storage import load_data, save_data, DataLock
+    with DataLock():
+        data = load_data()
+        site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        if chat_id not in site_data["chats"]:
+            site_data["chats"].append(chat_id)
+            save_data(data)
+            await update.message.reply_text(f"✅ Bound to webhook notifications for site '{site}'!")
+        else:
+            await update.message.reply_text("Already bound.")
 
 async def unbind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     site = context.args[0] if context.args else "default"
-    from .storage import load_data, save_data
-    data = await load_data()
-    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
-    if chat_id in site_data["chats"]:
-        site_data["chats"].remove(chat_id)
-    if chat_id in site_data["paused_chats"]:
-        site_data["paused_chats"].remove(chat_id)
-    await save_data(data)
+    from .storage import load_data, save_data, DataLock
+    with DataLock():
+        data = load_data()
+        site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"]:
+            site_data["chats"].remove(chat_id)
+        if chat_id in site_data["paused_chats"]:
+            site_data["paused_chats"].remove(chat_id)
+        save_data(data)
     await update.message.reply_text("❌ Unbound.")
 
 async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    from .storage import load_data, save_data
-    data = await load_data()
-    if chat_id in data["chats"] and chat_id not in data["paused_chats"]:
-        data["paused_chats"].append(chat_id)
-        await save_data(data)
-        await update.message.reply_text("⏸️ Notifications paused.")
-    else:
-        await update.message.reply_text("Not bound or already paused.")
+    from .storage import load_data, save_data, DataLock
+    with DataLock():
+        data = load_data()
+        site_data = data["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"] and chat_id not in site_data["paused_chats"]:
+            site_data["paused_chats"].append(chat_id)
+            save_data(data)
+            await update.message.reply_text("⏸️ Notifications paused.")
+        else:
+            await update.message.reply_text("Not bound or already paused.")
 
 async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    from .storage import load_data, save_data
-    data = await load_data()
-    if chat_id in data["paused_chats"]:
-        data["paused_chats"].remove(chat_id)
-        await save_data(data)
-        await update.message.reply_text("▶️ Notifications resumed.")
-    else:
-        await update.message.reply_text("Not paused.")
+    from .storage import load_data, save_data, DataLock
+    with DataLock():
+        data = load_data()
+        site_data = data["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["paused_chats"]:
+            site_data["paused_chats"].remove(chat_id)
+            save_data(data)
+            await update.message.reply_text("▶️ Notifications resumed.")
+        else:
+            await update.message.reply_text("Not paused.")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    from .storage import load_data
-    data = await load_data()
-    if chat_id in data["chats"]:
-        status_text = "✅ Active" if chat_id not in data["paused_chats"] else "⏸️ Paused"
-    else:
-        status_text = "❌ Not bound"
+    from .storage import load_data, DataLock
+    with DataLock():
+        data = load_data()
+        site_data = data["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+        if chat_id in site_data["chats"]:
+            status_text = "✅ Active" if chat_id not in site_data["paused_chats"] else "⏸️ Paused"
+        else:
+            status_text = "❌ Not bound"
     await update.message.reply_text(f"Status: {status_text}")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from .storage import load_data
-    data = await load_data()
+    from .storage import load_data, DataLock
+    with DataLock():
+        data = load_data()
     stats_text = f"📊 Stats:\nTotal: {data['stats']['total']}\nDaily: {data['stats']['daily']}"
     await update.message.reply_text(stats_text)
 
 async def recent(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from .storage import load_data
-    data = await load_data()
+    from .storage import load_data, DataLock
+    with DataLock():
+        data = load_data()
     recents = data["recent"][:5]
     if not recents:
         await update.message.reply_text("No recent webhooks.")
@@ -204,15 +214,16 @@ async def bind_other(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Invalid chat ID.")
         return
     site = context.args[1] if len(context.args) > 1 else "default"
-    from .storage import load_data, save_data
-    data = await load_data()
-    site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
-    if other_chat_id not in site_data["chats"]:
-        site_data["chats"].append(other_chat_id)
-        await save_data(data)
-        await update.message.reply_text(f"✅ Bound chat {other_chat_id} to webhook notifications for site '{site}'!")
-    else:
-        await update.message.reply_text("Already bound.")
+    from .storage import load_data, save_data, DataLock
+    with DataLock():
+        data = load_data()
+        site_data = data["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+        if other_chat_id not in site_data["chats"]:
+            site_data["chats"].append(other_chat_id)
+            save_data(data)
+            await update.message.reply_text(f"✅ Bound chat {other_chat_id} to webhook notifications for site '{site}'!")
+        else:
+            await update.message.reply_text("Already bound.")
 
 async def generate_token_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -246,63 +257,70 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "bind":
         site = "default"
-        from .storage import load_data, save_data
-        data_dict = await load_data()
-        site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
-        if chat_id not in site_data["chats"]:
-            site_data["chats"].append(chat_id)
-            await save_data(data_dict)
-            await query.edit_message_text("Bound to webhook notifications!")
-        else:
-            await query.edit_message_text("Already bound.")
+        from .storage import load_data, save_data, DataLock
+        with DataLock():
+            data_dict = load_data()
+            site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+            if chat_id not in site_data["chats"]:
+                site_data["chats"].append(chat_id)
+                save_data(data_dict)
+                await query.edit_message_text("Bound to webhook notifications!")
+            else:
+                await query.edit_message_text("Already bound.")
     elif data == "unbind":
         site = "default"
-        from .storage import load_data, save_data
-        data_dict = await load_data()
-        site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
-        if chat_id in site_data["chats"]:
-            site_data["chats"].remove(chat_id)
-        if chat_id in site_data["paused_chats"]:
-            site_data["paused_chats"].remove(chat_id)
-        await save_data(data_dict)
+        from .storage import load_data, save_data, DataLock
+        with DataLock():
+            data_dict = load_data()
+            site_data = data_dict["sites"].setdefault(site, {"chats": [], "paused_chats": []})
+            if chat_id in site_data["chats"]:
+                site_data["chats"].remove(chat_id)
+            if chat_id in site_data["paused_chats"]:
+                site_data["paused_chats"].remove(chat_id)
+            save_data(data_dict)
         await query.edit_message_text("Unbound.")
     elif data == "pause":
-        from .storage import load_data, save_data
-        data_dict = await load_data()
-        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
-        if chat_id in site_data["chats"] and chat_id not in site_data["paused_chats"]:
-            site_data["paused_chats"].append(chat_id)
-            await save_data(data_dict)
-            await query.edit_message_text("Notifications paused.")
-        else:
-            await query.edit_message_text("Not bound or already paused.")
+        from .storage import load_data, save_data, DataLock
+        with DataLock():
+            data_dict = load_data()
+            site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+            if chat_id in site_data["chats"] and chat_id not in site_data["paused_chats"]:
+                site_data["paused_chats"].append(chat_id)
+                save_data(data_dict)
+                await query.edit_message_text("Notifications paused.")
+            else:
+                await query.edit_message_text("Not bound or already paused.")
     elif data == "resume":
-        from .storage import load_data, save_data
-        data_dict = await load_data()
-        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
-        if chat_id in site_data["paused_chats"]:
-            site_data["paused_chats"].remove(chat_id)
-            await save_data(data_dict)
-            await query.edit_message_text("Notifications resumed.")
-        else:
-            await query.edit_message_text("Not paused.")
+        from .storage import load_data, save_data, DataLock
+        with DataLock():
+            data_dict = load_data()
+            site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+            if chat_id in site_data["paused_chats"]:
+                site_data["paused_chats"].remove(chat_id)
+                save_data(data_dict)
+                await query.edit_message_text("Notifications resumed.")
+            else:
+                await query.edit_message_text("Not paused.")
     elif data == "status":
-        from .storage import load_data
-        data_dict = await load_data()
-        site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
-        if chat_id in site_data["chats"]:
-            status_text = "Active" if chat_id not in site_data["paused_chats"] else "Paused"
-        else:
-            status_text = "Not bound"
+        from .storage import load_data, DataLock
+        with DataLock():
+            data_dict = load_data()
+            site_data = data_dict["sites"].setdefault("default", {"chats": [], "paused_chats": []})
+            if chat_id in site_data["chats"]:
+                status_text = "Active" if chat_id not in site_data["paused_chats"] else "Paused"
+            else:
+                status_text = "Not bound"
         await query.edit_message_text(f"Status: {status_text}")
     elif data == "stats":
-        from .storage import load_data
-        data_dict = await load_data()
+        from .storage import load_data, DataLock
+        with DataLock():
+            data_dict = load_data()
         stats_text = f"Stats:\nTotal: {data_dict['stats']['total']}\nDaily: {data_dict['stats']['daily']}"
         await query.edit_message_text(stats_text)
     elif data == "recent":
-        from .storage import load_data
-        data_dict = await load_data()
+        from .storage import load_data, DataLock
+        with DataLock():
+            data_dict = load_data()
         recents = data_dict["recent"][:5]
         if not recents:
             await query.edit_message_text("No recent webhooks.")
@@ -312,6 +330,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "generate_token":
         site = "default"
         from .storage import generate_token
-        token = await generate_token(chat_id, site)
-        url = f"http://158.62.198.119:8443/webhook/{token}"
+        token = generate_token(chat_id, site)
+        url = f"https://158.62.198.119:8443/webhook/{token}"
         await query.edit_message_text(f"Your webhook URL for site '{site}':\n{url}\n\nKeep this token secure!")
