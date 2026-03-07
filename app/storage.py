@@ -49,8 +49,11 @@ def load_data() -> Dict[str, Any]:
         }
 
 def save_data(data: Dict[str, Any]):
-    with open(DATA_FILE, 'w') as f:
+    # Atomic write: write to temp file then rename to prevent data loss
+    tmp_file = DATA_FILE.with_suffix('.tmp')
+    with open(tmp_file, 'w') as f:
         json.dump(data, f, indent=2)
+    tmp_file.replace(DATA_FILE)
 
 def save_webhook_request(
     req_id: str,

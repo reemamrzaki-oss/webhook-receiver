@@ -15,6 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path('/opt/webhook-data')
+PROTECTED_FILES = {'data.json', 'data.tmp', 'hashes.json', '.data.lock'}
 cutoff_date = datetime.now() - timedelta(days=30)
 
 deleted_dirs = 0
@@ -34,8 +35,8 @@ try:
                 continue
             except Exception as e:
                 logger.error(f"Failed to delete {item}: {e}")
-        elif item.is_file():
-            # Optional: delete stray files
+        elif item.is_file() and item.name not in PROTECTED_FILES:
+            # Delete stray files (but never data.json, hashes.json, .data.lock)
             item.unlink(missing_ok=True)
             deleted_files += 1
 
